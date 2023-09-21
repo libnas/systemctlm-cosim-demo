@@ -1,3 +1,27 @@
+/* Modified by libnas.  */
+
+/*
+ * Copyright (C) 2022, Advanced Micro Devices, Inc.
+ * Written by Fred Konrad
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
 #define SC_INCLUDE_DYNAMIC_PROCESSES
 
 #include <stdint.h>
@@ -27,14 +51,15 @@ using namespace std;
 #include "remote-port-tlm-pci-ep.h"
 
 #define PCI_VENDOR_ID_XILINX		(0x10ee)
+#define PCI_SUBSYSTEM_ID_XILINX_TEST	(0x000A)
 
 #define PCI_CLASS_BASE_NETWORK_CONTROLLER     (0x02)
 
 #define KiB (1024)
 #define RAM_SIZE (4 * KiB)
 
-#define NR_MMIO_BAR  6
-#define NR_IRQ       NR_XDMA_IRQ
+#define NR_MMIO_BAR 6
+#define NR_IRQ 15
 
 
 template<typename XDMA_t>
@@ -51,7 +76,7 @@ private:
 	tlm_utils::simple_target_socket<pcie_versal> brdg_dma_tgt_socket;
 
 	// MSI-X propagation
-	sc_vector<sc_signal<bool> > signals_irq;
+	// sc_vector<sc_signal<bool> > signals_irq;
 
 	//
 	// Nothing to attach to the XDMA yet, just add a dummy memory.
@@ -66,10 +91,10 @@ private:
 				sc_time &delay)
 	{
 		switch (bar_nr) {
-			case 1:
+			case 0:
 				user_bar_init_socket->b_transport(trans, delay);
 				break;
-			case 0:
+			case 1:
 				cfg_init_socket->b_transport(trans, delay);
 				break;
 			default:
@@ -90,17 +115,6 @@ private:
 		dma->b_transport(trans, delay);
 	}
 
-	//
-	// MSI-X propagation
-	//
-	void irq_thread(unsigned int i)
-	{
-		while (true) {
-			wait(signals_irq[i].value_changed_event());
-			irq[i].write(signals_irq[i].read());
-		}
-	}
-
 public:
 	SC_HAS_PROCESS(pcie_versal);
 
@@ -114,7 +128,7 @@ public:
 		cfg_init_socket("cfg_init_socket"),
 		brdg_dma_tgt_socket("brdg-dma-tgt-socket"),
 
-		signals_irq("signals_irq", NR_IRQ),
+		// signals_irq("signals_irq", NR_IRQ),
 
 		bus("bus"),
 		sbi_dummy("sbi_dummy", sc_time(0, SC_NS), RAM_SIZE)
@@ -130,21 +144,16 @@ public:
 		brdg_dma_tgt_socket.register_b_transport(
 			this, &pcie_versal::fwd_dma_b_transport);
 
-		// Connect the SBI dummy RAM
+		/* Connect the SBI dummy RAM
 		bus.memmap(0x102100000ULL, 0x1000 - 1,
 			   ADDRMODE_RELATIVE, -1, sbi_dummy.socket);
 		xdma.card_bus.bind((*bus.t_sk[0])); // define the card_bus in the xdma.h
-
-		// Setup MSI-X propagation
-		for (unsigned int i = 0; i < NR_IRQ; i++) {
-			xdma.irq[i](signals_irq[i]);
-			sc_spawn(sc_bind(&pcie_versal::irq_thread, this, i));
-		}
+		*/
 	}
 
-	void rst(sc_signal<bool>& rst)
+	void resetn(sc_signal<bool>& rst)
 	{
-		xdma.rst(rst);
+		xdma.resetn(~rst);
 	}
 };
 
@@ -168,7 +177,8 @@ PhysFuncConfig getPhysFuncConfig()
 	cfg.SetPCIClassDevice(0);
 	cfg.SetPCIClassBase(PCI_CLASS_BASE_NETWORK_CONTROLLER);
 
-	cfg.SetPCIBAR0(256 * KiB, bar_flags); // config_bar_pos
+	cfg.SetPCIBAR0(256 * KiB, bar_flags); // user_bar_pos
+	cfg.SetPCIBAR1(256 * KiB, bar_flags); // config_bar_pos
 
 	cfg.SetPCISubsystemVendorID(PCI_VENDOR_ID_XILINX);
 	cfg.SetPCISubsystemID(PCI_SUBSYSTEM_ID_XILINX_TEST);
@@ -252,7 +262,7 @@ public:
 
 		// Reset signal
 		host.rst(rst);
-		xdma.rst(rst);
+		xdma.resetn(rst);
 
 		SC_THREAD(pull_reset);
 	}

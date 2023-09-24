@@ -24,31 +24,13 @@
  */
 #define SC_INCLUDE_DYNAMIC_PROCESSES
 
-#include <stdint.h>
-#include <stdio.h>
-#include <signal.h>
-#include <unistd.h>
-
-#include "systemc.h"
-#include "tlm_utils/simple_initiator_socket.h"
-#include "tlm_utils/simple_target_socket.h"
-#include "tlm_utils/tlm_quantumkeeper.h"
-
+#include "soc/pci/xilinx/xdma_dut.h"
 #include "tlm-modules/pcie-controller.h"
-#include "soc/pci/core/pcie-root-port.h"
-#include "soc/pci/xilinx/xdma-def.h"
-#include "memory.h"
+#include "tests/test-modules/signals-xdma.h"
 
 using namespace sc_core;
 using namespace sc_dt;
 using namespace std;
-
-#include "trace.h"
-#include "iconnect.h"
-#include "debugdev.h"
-
-#include "remote-port-tlm.h"
-#include "remote-port-tlm-pci-ep.h"
 
 #define PCI_VENDOR_ID_XILINX		(0x10ee)
 #define PCI_SUBSYSTEM_ID_XILINX_TEST	(0x000A)
@@ -61,12 +43,12 @@ using namespace std;
 #define NR_MMIO_BAR 6
 #define NR_IRQ 15
 
+sc_clock clk("clk", sc_time(20, SC_US));
 
 template<typename XDMA_t>
 class pcie_versal : public pci_device_base
 {
 private:
-	XDMA_t xdma;
 
 	// BARs towards the XDMA
 	tlm_utils::simple_initiator_socket<pcie_versal> user_bar_init_socket;
@@ -116,6 +98,7 @@ private:
 	}
 
 public:
+	XDMA_t xdma;
 	SC_HAS_PROCESS(pcie_versal);
 
 	pcie_versal(sc_core::sc_module_name name) :
@@ -151,10 +134,12 @@ public:
 		*/
 	}
 
+	
 	void resetn(sc_signal<bool>& rst)
 	{
-		xdma.resetn(~rst);
+		xdma.resetn(rst);
 	}
+	
 };
 
 PhysFuncConfig getPhysFuncConfig()
@@ -235,7 +220,7 @@ public:
 	pcie_host host;
 
 	PCIeController pcie_ctlr;
-	pcie_versal<xdma> xdma;
+	pcie_versal<xdma_def> xdma;
 
 	//
 	// Reset signal.
@@ -251,6 +236,9 @@ public:
 	{
 		m_qk.set_global_quantum(quantum);
 
+		XDMASignals signals("signals");
+		xdma_dut dut("dut");
+
 		// Setup TLP sockets (host.rootport <-> pcie-ctlr)
 		host.rootport.init_socket.bind(pcie_ctlr.tgt_socket);
 		pcie_ctlr.init_socket.bind(host.rootport.tgt_socket);
@@ -261,8 +249,12 @@ public:
 		pcie_ctlr.bind(xdma);
 
 		// Reset signal
+		rst.write(false);
 		host.rst(rst);
 		xdma.resetn(rst);
+
+		signals.connect(xdma.xdma);
+		signals.connect(dut);
 
 		SC_THREAD(pull_reset);
 	}
@@ -285,6 +277,7 @@ void usage(void)
 
 int sc_main(int argc, char* argv[])
 {
+	/*
 	Top *top;
 	uint64_t sync_quantum;
 	sc_trace_file *trace_fp = NULL;
@@ -315,5 +308,8 @@ int sc_main(int argc, char* argv[])
 	if (trace_fp) {
 		sc_close_vcd_trace_file(trace_fp);
 	}
+	return 0;
+	*/
+	sc_start();
 	return 0;
 }
